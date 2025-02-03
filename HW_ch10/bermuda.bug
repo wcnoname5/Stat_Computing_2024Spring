@@ -1,0 +1,19 @@
+
+model{
+  for(i in 1:N){
+    y[i] ~ dgamma(nu, mu[i]); mu[i] <- nu*eta[i]
+    eta[i] <- 1/yhat[i] 
+    yhat[i] <- beta0 + (beta1/(100*Nit[i]+alpha[1]))+(beta2/(22*Phos[i]+alpha[2]))+(beta3/(42*Pot[i]+alpha[3]))
+  }
+## priors ##
+  nu~dgamma(0.01, 0.01)
+  alpha[1]~dnorm(40, 1/100)
+  alpha[2]~dnorm(22, 1/100)
+  alpha[3]~dnorm(32, 1/100)
+  beta0~dnorm(0, 1/10000)
+  beta1~dnorm(0, 1/10000) T(0,) # truncated below 0
+  beta2~dnorm(0, 1/10000) T(0,) # truncated below 0
+  beta3~dnorm(0, 1/10000) T(0,) # truncated below 0
+  
+}
+

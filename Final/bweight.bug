@@ -1,0 +1,22 @@
+
+model{
+  for(subID in 1:N){
+    weight[subID] ~ dnorm(mu[gender[subID]], preci[1])
+  }
+  for (i in 1:2){
+    mu[i] ~ dnorm(eta, preci[2])
+  }
+  preci[1] <- 1/sigma.sq
+  preci[2] <- 1/tau.sq
+  
+## priors ##
+  eta ~ dnorm(eta_mean, 1/10000)
+  tau.sq ~ dt(0, t.tau_tau.sq, 1) T(0,)
+  t.tau_tau.sq <- 1/b.tau^2
+  
+  sigma.sq ~ dt(0, t.tau_sigma.sq, 1) T(0,) 
+  t.tau_sigma.sq <- 1/b.sigma^2
+  b.tau <-  10000
+  b.sigma <- 100000
+}
+

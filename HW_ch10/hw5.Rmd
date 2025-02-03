@@ -1,0 +1,159 @@
+---
+title: "Statistical Computing HW5"
+author: "Wei-Chen Chang r12227118"
+date: "Due: 2024-05-22"
+output:
+  pdf_document:
+    fig_caption: yes
+    extra_dependencies: amsmath
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width= 5.6,fig.height=4.0, fig.align = "center")
+```
+
+```{r jags, eval=FALSE, include=FALSE}
+for (p in c("R2jags", "coda","rjags")){
+  install.packages(p,dependencies = TRUE)
+}
+```
+
+# Setup
+
+## The Model
+
+$$
+E[Y_i]=\frac{1}{e_i} = \beta_0 + \frac{\beta_1}{(N_i+\alpha_1)}+
+\frac{\beta_2}{(P_i+\alpha_2)}+\frac{\beta_3}{(K_i+\alpha_3)}
+$$
+The nutrient values of different levels in  $N,P, K$ are N=0, 100, 200, 400,
+P=0, 22, 44, 88, and K=0, 42, 84, 168. respectively.
+168.
+
+And the list of priors:
+$$
+\begin{cases}
+Y_i \sim gamma(\nu,\nu e_i)\\
+\nu\sim gamma(0.01, 0.01)\\
+\alpha_1 \sim N(\mu=40, \sigma^2 = 100)\\ 
+\alpha_2 \sim N(\mu=22, \sigma^2 = 100)\\ 
+\alpha_3 \sim N(\mu=32, \sigma^2 = 100)\\ 
+\beta_0 \sim N(\mu=0, \sigma^2 = 10000)\\
+\beta_j \sim N(\mu=0, \sigma^2 = 10000)I[\beta_j>0],\; j=1,2,3 \\
+\end{cases}
+$$
+
+
+### Specifying Model in JAGS
+```{r}
+# Load Dataset
+data(bermuda.grass, package = "LearnBayes")
+b.grass.list <- c(as.list(bermuda.grass), 
+                  list("N" = nrow(bermuda.grass))
+)
+# JAGS model
+modelstring ="
+model{
+  for(i in 1:N){
+    y[i] ~ dgamma(nu, mu[i]); mu[i] <- nu*eta[i]
+    eta[i] <- 1/yhat[i] 
+    yhat[i] <- beta0 + (beta1/(100*Nit[i]+alpha[1]))+(beta2/(22*Phos[i]+alpha[2]))+(beta3/(42*Pot[i]+alpha[3]))
+  }
+## priors ##
+  nu~dgamma(0.01, 0.01)
+  alpha[1]~dnorm(40, 1/100)
+  alpha[2]~dnorm(22, 1/100)
+  alpha[3]~dnorm(32, 1/100)
+  beta0~dnorm(0, 1/10000)
+  beta1~dnorm(0, 1/10000) T(0,) # truncated below 0
+  beta2~dnorm(0, 1/10000) T(0,) # truncated below 0
+  beta3~dnorm(0, 1/10000) T(0,) # truncated below 0
+  
+}
+"
+writeLines(modelstring, con="bermuda.bug")
+```
+
+# Analysis
+
+Here `R2jags` package is used to done the MCMC. The Posterior Mean, S.D., and other statistics
+can be seen in the output. One can see that every parameters have `Rhat` ($\hat R$, Gelman-Rubin Statistic) 
+values lower than 1.01, the convergence of the MCMC seems to be OK. 
+```{r message=FALSE}
+library(coda)
+library(rjags)
+library(R2jags)
+param.names <- c("nu", "alpha", paste0("beta",0:3))
+# set initial values
+bayes.mod.inits <- function(){
+ list("nu" = rgamma(1, 0.1, 0.1),
+      "alpha" = c(rnorm(1, 40, sd=5), 
+                  rnorm(1, 22, sd=5),
+                  rnorm(1, 32, sd=5)),
+      "beta0" = rnorm(1, sd=5), # such initial for beta0 seems to generate error
+      "beta1" = abs(rnorm(1,0, sd=5)),
+      "beta2" = abs(rnorm(1,0, sd=5)),
+      "beta3" = abs(rnorm(1,0, sd=5))
+      )
+} 
+inits <- list(bayes.mod.inits(), bayes.mod.inits(), bayes.mod.inits())
+set.seed(907)
+ber.jags<- jags(data = b.grass.list,
+     # inits = inits, # Note: errors happends a lot when using self-specified inits
+     parameters.to.save = param.names,
+     n.chains=3, n.iter=10000, n.burnin=1000,
+     model.file = "bermuda.bug")
+ber.jags |> print()
+```
+For visulaizing purpose, the posterior density plot were shown below.
+```{r}
+library(lattice)
+ber.mcmc <- as.mcmc(ber.jags)
+densityplot(ber.mcmc, layout=c(3,3), aspect="fill", 
+       main = "Density Plot")
+```
+One can see the density plot of 3 chains seems aligned.
+
+## Model Diagnosis
+
+### Convergence
+For diagnosis of the Markov Chains, here Geweke statistic were computed and
+convergence plot were drawn to check for convergence.  
+
+```{r}
+geweke.diag(ber.mcmc)
+```
+Geweke statistic larger than 2.5 or smaller than -2.5 is a warning sign for nonstationarity   
+samples. One can see only `beta2` from 2nd chain suffers such.
+
+```{r}
+xyplot(ber.mcmc, layout=c(3,3), aspect="fill", 
+       main = "Divergence Plot")
+```
+The Divergence plot also indicate that the chains were OK for convergence.
+
+### ACF
+And Autocorrelation plot were plotted below. One can see the autocorrelation after 5 lags are
+mostly between -.1 to .1. It support the samples were uncorrelated. 
+```{r ACF, fig.width= 6.0,fig.height=4.8}
+acfplot(ber.mcmc, main = "ACF Plot", layout=c(3,3), aspect="fill")
+```
+
+
+
+
+
+```{r eval=FALSE, include=FALSE}
+library(coda)
+library(rjags)
+
+ber.mod <- jags.model(file="bermuda.bug",
+                      inits = inits,
+                      data = b.grass.list, n.chains=3 , n.adapt=500)
+update(ber.mod, n.iter=1000, progress.bar="text") 
+out=coda.samples(ber.mod,
+                 variable.names=param.names,
+                 n.iter=10000, 
+                 thin=5) 
+summary(out)
+``` 
